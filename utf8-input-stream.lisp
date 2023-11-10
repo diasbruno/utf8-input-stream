@@ -123,6 +123,15 @@
 		    (ash (mask-field (byte 6 0) b1) 12)
 		    (ash (mask-field (byte 4 0) b0) 18)))))
 
+(declaim (inline utf8-char-code-size))
+(defun utf8-char-code-size (code)
+  (cond
+    ((<= code #x7F) 1)
+    ((<= code #x7FF) 2)
+    ((<= code #xFFFF) 3)
+    ((<= code #x10FFFF) 4)
+    (t (error "Invalid UTF-8 character"))))
+
 (defun fetch-ch (ctx)
   (declare (optimize (speed 3) (debug 0) (safety 0)))
   (let ((b0 (read-byte-from-buf ctx)))
@@ -133,7 +142,7 @@
       ((four-bytes-ch? b0) (fetch-4-bytes-ch ctx b0))
       (t (error 'character-encoding-error :stream-context-pos (pos ctx))))))
 
-(defun read-char-from-buf (ctx)  
+(defun read-char-from-buf (ctx)
   (declare (optimize (speed 3) (debug 0) (safety 0)))
   (loop do
     (refill-buffer ctx)
@@ -145,16 +154,10 @@
   (read-char-from-buf (ctx s)))
 
 (defmethod stream-unread-char ((s character-input-stream) ch)
-  (let* ((b0 (char-code ch))
-         (give-back (cond
-                      ((one-byte-ch? b0) 1)
-                      ((two-bytes-ch? b0) 2)
-                      ((three-bytes-ch? b0) 3)
-                      ((four-bytes-ch? b0) 4))))
-    (setf (stream-context-pos (ctx s))
-          (- (stream-context-pos (ctx s)) give-back))
-    (setf (stream-context-buf-pos (ctx s))
-          (- (stream-context-buf-pos (ctx s)) give-back))))
+  (decf (stream-context-pos (ctx s)))
+  (setf (stream-context-buf-pos (ctx s))
+        (- (stream-context-buf-pos (ctx s))
+           (utf8-char-code-size (char-code ch)))))
 
 (defun vector-to-string (v)
   (let* ((len (length v))
